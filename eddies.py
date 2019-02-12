@@ -133,7 +133,7 @@ def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddi
     # algorithm below.
         
     print('\nNote: max_evaluation_points set to '+ repr(max_evaluation_points) ,'\nTo identify eddies over the full domain, set max_evaluation_points to a high number like 1e4.')
-    local_mins = find_local_mins(OW,OW_start,max_evaluation_points)
+    local_mins = local_minima3D (OW,OW_start,max_evaluation_points)
     num_mins = local_mins.shape[1]
     
     # Compute OW, straight and then normalized with its standart deviation
