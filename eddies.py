@@ -1,9 +1,8 @@
-# -*- coding: utf-8 -*-
 """
 Created on Tue Feb 12 15:03:30 2019
 
 @author: jasaa
-v0 of eddy detection functions
+eddy detection functions
 
 eddy_detection:
     inputs: 
@@ -16,8 +15,8 @@ eddy_detection:
         - min_eddie_cells: Minimum number of cells required to be identified as an eddie.
         
     returns a tuple with:
-        - lon: longitude vector (ª)
-        - lat: latitude vector (ª)
+        - lon: longitude vector (deg)
+        - lat: latitude vector (deg)
         - uvel: zonal velocity (m/s)
         - vvel: meridional velocity (m/s)
         - vorticity (m/s)
@@ -28,14 +27,18 @@ eddy_detection:
         - cyclonic_mask: mask of cyclonic (+1) and anti-cyclonic (-1) eddies
 """
 
+#import all necesary libraries
+import matplotlib.pyplot as plt
+import math
+import numpy as np
+import netCDF4 as nc4
+import scipy.signal as sg
+import pandas as pd   
+
+
 # Eddy detection algorithm
-
 def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddie_cells):
-    import math
-    import numpy as np
-    import netCDF4 as nc4
-
-    
+ 
     f = nc4.Dataset(filename,'r', format='NETCDF4') #'r' stands for read
     
     # Load longitude and latitude, and depth of grid
@@ -133,17 +136,9 @@ def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddi
     # algorithm below.
         
     print('\nNote: max_evaluation_points set to '+ repr(max_evaluation_points) ,'\nTo identify eddies over the full domain, set max_evaluation_points to a high number like 1e4.')
-    local_mins = find_local_mins(OW,OW_start,max_evaluation_points)
+    
+    local_mins = local_peaks(OW,OW_start,max_evaluation_points)
     num_mins = local_mins.shape[1]
-    
-    # Compute OW, straight and then normalized with its standart deviation
-    OW_raw = normal_strain ** 2 + shear_strain ** 2 - vorticity ** 2
-    OW_mean = OW_raw.sum() / n_ocean_cells
-    OW_std = np.sqrt(np.sum((np.multiply(ocean_mask,(OW_raw - OW_mean)) ** 2)) / n_ocean_cells)
-    OW = OW_raw / OW_std
-    
-    OW_eddies = np.zeros(OW.shape,dtype=int)
-    OW_eddies[np.where(OW < - 0.2)] = 1
     
     
     ########################################################################
@@ -288,6 +283,7 @@ def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddi
                     # add this eddie to the full eddie mask
                     all_eddies_mask = all_eddies_mask + eddie_mask 
                     
+                    # add eddie to the full cyclonic mask
                     if circ>0.0:
                         cyclonic_mask = cyclonic_mask + eddie_mask
                     else:
@@ -306,7 +302,6 @@ def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddi
 
 ## Creates grid #####################################################
 def grid_cell_area(x,y):
-    import numpy as np
 # Given 2D arrays x and y with grid cell locations, compute the
 # area of each cell.
     
@@ -334,9 +329,7 @@ def grid_cell_area(x,y):
 
 def deriv1_central_diff_3D(a,x,y):
 # Take the first derivative of a with respect to x and y using
-# centered central differences. The variable a is a 3D field.
-    import numpy as np
-    
+# centered central differences. The variable a is a 3D field.   
     nx,ny,nz = a.shape
     dadx = np.zeros((nx,ny,nz))                            
     dady = np.zeros((nx,ny,nz))
@@ -364,9 +357,6 @@ def find_local_mins(A,A_start,max_evaluation_points):
 # A_start.  The output, local_mins, is a 3xm array of the m
 # minimums found, containing the three A indices of each minimum.
 # The search evaluates every k level, but not the horizontal edges.
-    
-    import numpy as np
-    
     nx,ny, nz = A.shape
     local_mins = np.zeros((3,max_evaluation_points),dtype=int)
     
@@ -394,10 +384,6 @@ def local_minima3D(A,A_start,max_evaluation_points):
 # minimums found, containing the three A indices of each minimum. 
 # The compares each point with its neighbors and creates a boolean mask with the positions of the minima.
 # minima_mask is an boolean array where True == minima in that point.
-# Doesn´t treat values at the boundaries correctly; finds the neighbor at the other side
-    
-    import numpy as np
-    
     mask_minima = ((A<A_start)      &
                    (np.abs(A)>0.0) &
             (A <= np.roll(A,  1, axis = 0)) &
@@ -406,18 +392,27 @@ def local_minima3D(A,A_start,max_evaluation_points):
             (A <= np.roll(A, -1, axis = 1)) &
             (A <= np.roll(A,  1, axis = 2)) &
             (A <= np.roll(A, -1, axis = 2)))
-   
+
     n_minima = np.count_nonzero(mask_minima)
     local_min = np.asarray(np.where(mask_minima))
     sample = np.random.randint(0,local_min.shape[1],size = np.min((max_evaluation_points,n_minima)))
 
-    return (mask_minima,local_min[:,sample])
+    return mask_minima,local_min[:,sample]
+
+def local_peaks(A,A_start,max_evaluation_points):
+# Using the scipy.signal.fing_peaks function with flattened array and unravelling it, probably much faster.   
+    A_flat = A.flatten()
+    peaks = sg.find_peaks(-A_flat,height=-A_start)
+    n_minima = len(peaks[0])
+    local_min = local_min = np.asarray(np.unravel_index(peaks[0],A.shape))
+    sample = np.random.randint(0,local_min.shape[1],size = np.min((max_evaluation_points,n_minima)))
+
+    return local_min[:,sample]
+
 
 ## Print the eddy census ##################################################################
 def print_eddies(eddie_census,nEddies):
     #prints the characteristics of the eddies from eddie_census
-    import pandas as pd   
-    import numpy as np
     
     print('\nEddie census data\n')
     
@@ -431,8 +426,6 @@ def print_eddies(eddie_census,nEddies):
     
 def plot_eddies(lon,lat,uvel,vvel,vorticity,OW,OW_eddies,eddie_census,nEddies,cyclonic_mask,k_plot):
     #k_plot: z-level to plot.  Usually set to 0 for the surface.
-
-    import matplotlib.pyplot as plt
     
     fig,axes = plt.subplots(nrows=3, ncols=2,figsize=(10,10))
 
