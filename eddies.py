@@ -156,6 +156,7 @@ def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddi
     eddie_census = np.zeros((6, num_mins))
     all_eddies_mask = np.zeros(uvel.shape,dtype=int)
     cyclonic_mask = np.zeros(uvel.shape,dtype=int)
+    intensity_mask = np.zeros(uvel.shape)
     
     print('Evaluating eddy at local OW minimuma.  Number of minimums = %g \n' %num_mins)
     
@@ -288,7 +289,10 @@ def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddi
                         cyclonic_mask = cyclonic_mask + eddie_mask
                     else:
                         cyclonic_mask = cyclonic_mask - eddie_mask
-      
+
+                   # add eddie to the full intensity mask
+                    intensity_mask = intensity_mask + circ*eddie_mask
+
                     
                     # record eddie data
                     eddie_census[:, iEddie-1] = (minOW[0], circ, lon[iE], lat[jE], ind, diameter)
@@ -297,7 +301,7 @@ def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddi
     
     nEddies = iEddie
     
-    return (lon,lat,uvel,vvel,vorticity,OW,OW_eddies,eddie_census,nEddies,cyclonic_mask)
+    return (lon,lat,uvel,vvel,vorticity,OW,OW_eddies,eddie_census,nEddies,cyclonic_mask,intensity_mask)
     
 
 ## Creates grid #####################################################
@@ -424,7 +428,7 @@ def print_eddies(eddie_census,nEddies):
     
 ## Plot velocities and eddies #############################################################
     
-def plot_eddies(lon,lat,uvel,vvel,vorticity,OW,OW_eddies,eddie_census,nEddies,cyclonic_mask,k_plot):
+def plot_eddies(lon,lat,uvel,vvel,vorticity,OW,OW_eddies,eddie_census,nEddies,intensity_mask,k_plot):
     #k_plot: z-level to plot.  Usually set to 0 for the surface.
     
     fig,axes = plt.subplots(nrows=3, ncols=2,figsize=(10,10))
@@ -442,13 +446,14 @@ def plot_eddies(lon,lat,uvel,vvel,vorticity,OW,OW_eddies,eddie_census,nEddies,cy
     axes[1,1].set_title('OW')
     
     pos5 = axes[2,0].imshow(OW_eddies[:,:,k_plot].T, extent=[lon[0],lon[-1],lat[0],lat[-1]], aspect='auto',origin="lower")
-    axes[2,0].set_title('OW<-0.2')
+    axes[2,0].set_title('Possible eddies (OW<-0.2)')
     
-    pos6 = axes[2,1].imshow(cyclonic_mask[:,:,k_plot].T, extent=[lon[0],lon[-1],lat[0],lat[-1]],aspect='auto',origin="lower")
-    axes[2,1].set_title('Eddies (cyclonic=+1, anticyclonic=-1)')
+    pos6 = axes[2,1].imshow(intensity_mask[:,:,k_plot].T, extent=[lon[0],lon[-1],lat[0],lat[-1]],aspect='auto',origin="lower",cmap='jet')
+    axes[2,1].set_title('Eddy intensity (m^2/s), cyclonic>0, anticyclonic<0')
     for i in range(0,nEddies):
         text = axes[2,1].annotate(i+1, eddie_census[2:4,i])
-        text.set_color('r')
+        text.set_fontsize('x-small')
+        text.set_color('k')
     
     # add the colorbar using the figure's method,telling it which mappable we're talking about and which axes object it should be near
     fig.colorbar(pos1, ax=axes[0,0])
