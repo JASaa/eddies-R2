@@ -7,6 +7,7 @@ eddy detection functions
 eddy_detection:
     inputs: 
         - filename: name of the netCDF file with the data
+        - day: day number
         - R2_criterion: Confidence level, usually 90%
         - OW_start: OW value at which to begin the evaluation of R2
         - max_evaluation_points: Number of local minima to evaluate using R2 method.
@@ -31,26 +32,27 @@ eddy_detection:
 import matplotlib.pyplot as plt
 import math
 import numpy as np
-import netCDF4 as nc4
 import scipy.signal as sg
-import pandas as pd   
+import pandas as pd
+import netCDF4 as nc4 
 
+# Load netCDF4 data
 
-# Eddy detection algorithm
-def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddie_cells):
- 
+def load_netcdf4(filename): #name of the netCDF data file
     f = nc4.Dataset(filename,'r', format='NETCDF4') #'r' stands for read
-    
-    # Load longitude and latitude, and depth of grid
     lon = f.variables['longitude'][:]
     lat = f.variables['latitude'][:]
     depth = f.variables['depth'][:]
     # Load zonal and meridional velocity, in m/s
     uvel = f.variables['uo'][:]
     vvel = f.variables['vo'][:]
-    
+    # Load time in hours from 1950-01-01
+    t = f.variables['time'][:]
+    return (f,lon,lat,depth,uvel,vvel,t)
     f.close() 
-    
+
+# Eddy detection algorithm
+def eddy_detection(lon,lat,depth,uvel,vvel,day,R2_criterion,OW_start,max_evaluation_points,min_eddie_cells):    
     ########################################################################
     
     # Initialize variables
@@ -58,8 +60,8 @@ def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddi
     ########################################################################
     
     # We transpose the data to fit with the algorithm provided
-    uvel = uvel[0,:,:,:].transpose(2,1,0)
-    vvel = vvel[0,:,:,:].transpose(2,1,0)
+    uvel = uvel[day,:,:,:].transpose(2,1,0)
+    vvel = vvel[day,:,:,:].transpose(2,1,0)
     
     # Since they are masked arrays (in the mask, True = NaN value), we can fill the masked values with 0.0 to describe land
     uvel.set_fill_value(0.0)
