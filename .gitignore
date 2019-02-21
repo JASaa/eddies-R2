@@ -103,8 +103,11 @@ venv.bak/
 # mypy
 .mypy_cache/
 
-# netCDF data files
+# netCDF data files (too large)
 *.nc
 
 # ini files
 *.ini
+
+# .npy files (too large)
+*.npy
