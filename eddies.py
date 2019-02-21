@@ -59,7 +59,7 @@ def eddy_detection(lon,lat,depth,uvel,vvel,day,R2_criterion,OW_start,max_evaluat
         
     ########################################################################
     
-    # We transpose the data to fit with the algorithm provided
+    # We transpose the data to fit with the algorithm provided, the correct order is uvel(lon,lat,depth) while the original from the netCDF is uvel(time,lat,lon,depth)
     uvel = uvel[day,:,:,:].transpose(2,1,0)
     vvel = vvel[day,:,:,:].transpose(2,1,0)
     
@@ -88,9 +88,8 @@ def eddy_detection(lon,lat,depth,uvel,vvel,day,R2_criterion,OW_start,max_evaluat
     dx,dy,grid_area = grid_cell_area(x,y)
     
     # Calculate the thickness of each depth level, we do a mean between the level above and below => dz[i] = (depth[i+1] - depth[i-1]) / 2.0;
-    # except for the first depth wich is 2*depth[0]
-    
-    # if the data has only one depth, we choose dz=1, a value chosen arbitrarily 
+    # except for the first depth wich is 2*depth[0].
+    # If the data has only one depth, we choose dz=1, a value chosen arbitrarily 
     # to well work with the volume calculations (in this case we would work formally with areas)
     if nz==1:
         dz = np.array([1])
@@ -125,6 +124,7 @@ def eddy_detection(lon,lat,depth,uvel,vvel,day,R2_criterion,OW_start,max_evaluat
     OW_std = np.sqrt(np.sum((np.multiply(ocean_mask,(OW_raw - OW_mean)) ** 2)) / n_ocean_cells)
     OW = OW_raw / OW_std
     
+    # We create a mask with the possible location of eddies, meaning OW<-0.2
     OW_eddies = np.zeros(OW.shape,dtype=int)
     OW_eddies[np.where(OW < - 0.2)] = 1
         
@@ -134,7 +134,7 @@ def eddy_detection(lon,lat,depth,uvel,vvel,day,R2_criterion,OW_start,max_evaluat
     #  Find local minimums in Okubo-Weiss field
         
     ########################################################################
-    # Efficiency note: Search for local minima can be merged with R2
+    # Efficiency note: Search for local minima could be merged with R2
     # algorithm below.
         
     print('\nNote: max_evaluation_points set to '+ repr(max_evaluation_points) ,'\nTo identify eddies over the full domain, set max_evaluation_points to a high number like 1e4.')
@@ -271,7 +271,7 @@ def eddy_detection(lon,lat,depth,uvel,vvel,day,R2_criterion,OW_start,max_evaluat
                     diameter = 2*np.sqrt(area/np.pi)/1e3
                     
                     # Circulation aroung the eddie
-                    # Calculated on a square line around the center of the eddy, positive in the clockwise direction
+                    # Calculated on a square around the center of the eddy, positive in the clockwise direction
                     
                     circ_sides = -vvel[np.min((iE+1,nx-1)), jE, kE]*dy[np.min((iE+1,nx-1)),jE] - uvel[iE, np.max((jE-1,0)), kE]*dx[iE,np.max((0,jE-1))] + vvel[np.max((0,iE-1)), jE, kE]*dy[np.max((iE-1,0)),jE] + uvel[iE, np.min((jE+1,ny-1)), kE]*dx[iE,np.min((jE+1,ny-1))]   
                     circ_corner1 = -vvel[np.min((iE+1,nx-1)), np.max((jE-1,0)), kE]*0.5*dy[np.min((iE+1,nx-1)),np.max((jE-1,0))] - uvel[np.min((iE+1,nx-1)), np.max((jE-1,0)), kE]*0.5*dx[np.min((iE+1,nx-1)),np.max((jE-1,0))]
@@ -280,8 +280,7 @@ def eddy_detection(lon,lat,depth,uvel,vvel,day,R2_criterion,OW_start,max_evaluat
                     circ_corner4 =  uvel[np.min((iE+1,nx-1)), np.min((jE+1,ny-1)), kE]*0.5*dx[np.min((iE+1,nx-1)),np.min((jE+1,ny-1))] - vvel[np.min((iE+1,nx-1)), np.min((jE+1,ny-1)), kE]*0.5*dy[np.min((iE+1,nx-1)),np.min((jE+1,ny-1))]
                 
                     circ = circ_sides + circ_corner1 + circ_corner2 + circ_corner3 + circ_corner4  
-                    
-                    
+                               
                     # add this eddy to the full eddy mask
                     all_eddies_mask = all_eddies_mask + eddie_mask 
 
