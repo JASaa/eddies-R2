@@ -25,7 +25,7 @@ eddy_detection:
         - eddy_census: characteristics of the detected eddies --> minOW, circ(m^2/s), lon(º), lat(º), cells, diameter(km)
         - OW: non-dimensional Okubo-Weiss parameter
         - OW_eddies: OW<-0.2 --> cells that could containt the center of an eddy
-        - cyclonic_mask: mask of cyclonic (+1) and anti-cyclonic (-1) eddies
+        - circulation_mask: map of circulation for cyclonic (circ>0) and anti-cyclonic (circ<0) eddies, circ=0 if the cell is not in an eddy
 """
 
 #import all necesary libraries
@@ -157,8 +157,7 @@ def eddy_detection(lon,lat,depth,uvel,vvel,day,R2_criterion,OW_start,max_evaluat
     iEddie = 0
     eddie_census = np.zeros((6, num_mins))
     all_eddies_mask = np.zeros(uvel.shape,dtype=int)
-    cyclonic_mask = np.zeros(uvel.shape,dtype=int)
-    intensity_mask = np.zeros(uvel.shape)
+    circulation_mask = np.zeros(uvel.shape)
     
     print('Evaluating eddy at local OW minimuma.  Number of minimums = %g \n' %num_mins)
     
@@ -283,19 +282,12 @@ def eddy_detection(lon,lat,depth,uvel,vvel,day,R2_criterion,OW_start,max_evaluat
                     circ = circ_sides + circ_corner1 + circ_corner2 + circ_corner3 + circ_corner4  
                     
                     
-                    # add this eddie to the full eddie mask
+                    # add this eddy to the full eddy mask
                     all_eddies_mask = all_eddies_mask + eddie_mask 
-                    
-                    # add eddie to the full cyclonic mask
-                    if circ>0.0:
-                        cyclonic_mask = cyclonic_mask + eddie_mask
-                    else:
-                        cyclonic_mask = cyclonic_mask - eddie_mask
 
-                   # add eddie to the full intensity mask
-                    intensity_mask = intensity_mask + circ*eddie_mask
+                    # add eddy to the full circulation mask
+                    circulation_mask = circulation_mask + circ*eddie_mask
 
-                    
                     # record eddie data
                     eddie_census[:, iEddie-1] = (minOW[0], circ, lon[iE], lat[jE], ind, diameter)
                 
@@ -303,7 +295,7 @@ def eddy_detection(lon,lat,depth,uvel,vvel,day,R2_criterion,OW_start,max_evaluat
     
     nEddies = iEddie
     
-    return (lon,lat,uvel,vvel,vorticity,OW,OW_eddies,eddie_census,nEddies,cyclonic_mask,intensity_mask)
+    return (lon,lat,uvel,vvel,vorticity,OW,OW_eddies,eddie_census,nEddies,circulation_mask)
     
 
 ## Creates grid #####################################################
