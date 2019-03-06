@@ -111,3 +111,9 @@ venv.bak/
 
 # .npy files (too large)
 *.npy
+
+# png images
+*.png
+
+# excel
+*.xlsx

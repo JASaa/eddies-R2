@@ -24,7 +24,7 @@ eddy_detection:
         - nEddies: number of eddies found
         - eddy_census: characteristics of the detected eddies --> minOW, circ(m^2/s), lon(º), lat(º), cells, diameter(km)
         - OW: non-dimensional Okubo-Weiss parameter
-        - OW_eddies: OW<-0.2 --> cells that could containt the center of an eddy
+        - OW_eddies: OW<OW_start --> cells that could containt the center of an eddy
         - circulation_mask: map of circulation for cyclonic (circ>0) and anti-cyclonic (circ<0) eddies, circ=0 if the cell is not in an eddy
 """
 
@@ -35,6 +35,7 @@ import numpy as np
 import scipy.signal as sg
 import pandas as pd
 import netCDF4 as nc4 
+import datetime
 
 # Load netCDF4 data
 
@@ -126,7 +127,7 @@ def eddy_detection(lon,lat,depth,uvel,vvel,day,R2_criterion,OW_start,max_evaluat
     
     # We create a mask with the possible location of eddies, meaning OW<-0.2
     OW_eddies = np.zeros(OW.shape,dtype=int)
-    OW_eddies[np.where(OW < - 0.2)] = 1
+    OW_eddies[np.where(OW < OW_start)] = 1
         
     
     ########################################################################
@@ -408,41 +409,39 @@ def local_peaks(A,A_start,max_evaluation_points):
 
 
 ## Print the eddy census ##################################################################
-def print_eddies(eddie_census,nEddies):
+def dataframe_eddies(eddie_census,nEddies):
     #prints the characteristics of the eddies from eddie_census
-    
-    print('\nEddie census data\n')
     
     name_list = ['minOW','circ(m^2/s)','lon(º)','lat(º)','cells','diameter(km)']
     data = eddie_census[:,0:nEddies].T    
     
     df = pd.DataFrame(data,index= np.arange(1,nEddies+1),columns=name_list)
-    print(df)
+    return df
     
 ## Plot velocities and eddies #############################################################
     
-def plot_eddies(lon,lat,uvel,vvel,vorticity,OW,OW_eddies,eddie_census,nEddies,intensity_mask,k_plot):
+def plot_eddies(day_julian_hours,lon,lat,uvel,vvel,vorticity,OW,OW_eddies,eddie_census,nEddies,intensity_mask,k_plot):
     #k_plot: z-level to plot.  Usually set to 0 for the surface.
     
     fig,axes = plt.subplots(nrows=3, ncols=2,figsize=(10,10))
 
     pos1 = axes[0,0].imshow(uvel[:,:,k_plot].T, extent=[lon[0],lon[-1],lat[0],lat[-1]],aspect='auto',origin="lower",cmap='jet')
-    axes[0,0].set_title('Zonal velocity (m/s) ->')
+    axes[0,0].set_title(r'Zonal velocity $(m/s) \rightarrow$')
     
     pos2 =axes[0,1].imshow(vvel[:,:,k_plot].T, extent=[lon[0],lon[-1],lat[0],lat[-1]],aspect='auto',origin="lower",cmap='jet')
-    axes[0,1].set_title('Meridional velocity (m/s) ^')
+    axes[0,1].set_title(r'Meridional velocity $(m/s) \uparrow$')
     
     pos3 = axes[1,0].imshow(1e5*vorticity[:,:,k_plot].T, extent=[lon[0],lon[-1],lat[0],lat[-1]],aspect='auto',origin="lower",cmap='jet')
-    axes[1,0].set_title('1e5·Vorticity (1/s)')
+    axes[1,0].set_title('Vorticity ($10^5/s$)')
     
     pos4 = axes[1,1].imshow(OW[:,:,k_plot].T, extent=[lon[0],lon[-1],lat[0],lat[-1]],aspect='auto',origin="lower",cmap='jet')
-    axes[1,1].set_title('OW')
+    axes[1,1].set_title('Okubo-Weiss')
     
     pos5 = axes[2,0].imshow(OW_eddies[:,:,k_plot].T, extent=[lon[0],lon[-1],lat[0],lat[-1]], aspect='auto',origin="lower")
-    axes[2,0].set_title('Possible eddies (OW<-0.2)')
+    axes[2,0].set_title('Possible eddies ($OW<OW_{start}$)')
     
     pos6 = axes[2,1].imshow(intensity_mask[:,:,k_plot].T, extent=[lon[0],lon[-1],lat[0],lat[-1]],aspect='auto',origin="lower",cmap='jet')
-    axes[2,1].set_title('Eddy intensity (m^2/s), cyclonic>0, anticyclonic<0')
+    axes[2,1].set_title('Circulation ($m^2/s$), $>0$: cyclonic, $<0$: anticyclonic, $=0$: no eddy')
     for i in range(0,nEddies):
         text = axes[2,1].annotate(i+1, eddie_census[2:4,i])
         text.set_fontsize('x-small')
@@ -455,6 +454,16 @@ def plot_eddies(lon,lat,uvel,vvel,vorticity,OW,OW_eddies,eddie_census,nEddies,in
     fig.colorbar(pos4, ax=axes[1,1])
     fig.colorbar(pos5, ax=axes[2,0])
     fig.colorbar(pos6, ax=axes[2,1])
-        
+   
+    origin = datetime.date(1950, 1, 1)
+    st =fig.suptitle('Eddy data for the ' + str(julianh2gregorian(day_julian_hours,origin)), fontsize="x-large")
+    st.set_y(1.02)
+    
     plt.tight_layout()
+    return plt
     plt.show()
+
+
+## Change date format #############################################################   
+def julianh2gregorian(time_hours,origin):
+    return origin + datetime.timedelta(hours=time_hours)
