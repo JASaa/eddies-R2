@@ -7,6 +7,7 @@ eddy detection functions
 eddy_detection:
     inputs: 
         - filename: name of the netCDF file with the data
+        - day: day number
         - R2_criterion: Confidence level, usually 90%
         - OW_start: OW value at which to begin the evaluation of R2
         - max_evaluation_points: Number of local minima to evaluate using R2 method.
@@ -23,43 +24,45 @@ eddy_detection:
         - nEddies: number of eddies found
         - eddy_census: characteristics of the detected eddies --> minOW, circ(m^2/s), lon(º), lat(º), cells, diameter(km)
         - OW: non-dimensional Okubo-Weiss parameter
-        - OW_eddies: OW<-0.2 --> cells that could containt the center of an eddy
-        - cyclonic_mask: mask of cyclonic (+1) and anti-cyclonic (-1) eddies
+        - OW_eddies: OW<OW_start --> cells that could containt the center of an eddy
+        - circulation_mask: map of circulation for cyclonic (circ>0) and anti-cyclonic (circ<0) eddies, circ=0 if the cell is not in an eddy
 """
 
 #import all necesary libraries
 import matplotlib.pyplot as plt
 import math
 import numpy as np
-import netCDF4 as nc4
 import scipy.signal as sg
-import pandas as pd   
+import pandas as pd
+import netCDF4 as nc4 
+import datetime
 
+# Load netCDF4 data
 
-# Eddy detection algorithm
-def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddie_cells):
- 
+def load_netcdf4(filename): #name of the netCDF data file
     f = nc4.Dataset(filename,'r', format='NETCDF4') #'r' stands for read
-    
-    # Load longitude and latitude, and depth of grid
     lon = f.variables['longitude'][:]
     lat = f.variables['latitude'][:]
     depth = f.variables['depth'][:]
     # Load zonal and meridional velocity, in m/s
     uvel = f.variables['uo'][:]
     vvel = f.variables['vo'][:]
-    
+    # Load time in hours from 1950-01-01
+    t = f.variables['time'][:]
+    return (f,lon,lat,depth,uvel,vvel,t)
     f.close() 
-    
+
+# Eddy detection algorithm
+def eddy_detection(lon,lat,depth,uvel,vvel,day,R2_criterion,OW_start,max_evaluation_points,min_eddie_cells):    
     ########################################################################
     
     # Initialize variables
         
     ########################################################################
     
-    # We transpose the data to fit with the algorithm provided
-    uvel = uvel[0,:,:,:].transpose(2,1,0)
-    vvel = vvel[0,:,:,:].transpose(2,1,0)
+    # We transpose the data to fit with the algorithm provided, the correct order is uvel(lon,lat,depth) while the original from the netCDF is uvel(time,lat,lon,depth)
+    uvel = uvel[day,:,:,:].transpose(2,1,0)
+    vvel = vvel[day,:,:,:].transpose(2,1,0)
     
     # Since they are masked arrays (in the mask, True = NaN value), we can fill the masked values with 0.0 to describe land
     uvel.set_fill_value(0.0)
@@ -86,9 +89,8 @@ def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddi
     dx,dy,grid_area = grid_cell_area(x,y)
     
     # Calculate the thickness of each depth level, we do a mean between the level above and below => dz[i] = (depth[i+1] - depth[i-1]) / 2.0;
-    # except for the first depth wich is 2*depth[0]
-    
-    # if the data has only one depth, we choose dz=1, a value chosen arbitrarily 
+    # except for the first depth wich is 2*depth[0].
+    # If the data has only one depth, we choose dz=1, a value chosen arbitrarily 
     # to well work with the volume calculations (in this case we would work formally with areas)
     if nz==1:
         dz = np.array([1])
@@ -123,8 +125,9 @@ def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddi
     OW_std = np.sqrt(np.sum((np.multiply(ocean_mask,(OW_raw - OW_mean)) ** 2)) / n_ocean_cells)
     OW = OW_raw / OW_std
     
+    # We create a mask with the possible location of eddies, meaning OW<-0.2
     OW_eddies = np.zeros(OW.shape,dtype=int)
-    OW_eddies[np.where(OW < - 0.2)] = 1
+    OW_eddies[np.where(OW < OW_start)] = 1
         
     
     ########################################################################
@@ -132,7 +135,7 @@ def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddi
     #  Find local minimums in Okubo-Weiss field
         
     ########################################################################
-    # Efficiency note: Search for local minima can be merged with R2
+    # Efficiency note: Search for local minima could be merged with R2
     # algorithm below.
         
     print('\nNote: max_evaluation_points set to '+ repr(max_evaluation_points) ,'\nTo identify eddies over the full domain, set max_evaluation_points to a high number like 1e4.')
@@ -155,8 +158,7 @@ def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddi
     iEddie = 0
     eddie_census = np.zeros((6, num_mins))
     all_eddies_mask = np.zeros(uvel.shape,dtype=int)
-    cyclonic_mask = np.zeros(uvel.shape,dtype=int)
-    intensity_mask = np.zeros(uvel.shape)
+    circulation_mask = np.zeros(uvel.shape)
     
     print('Evaluating eddy at local OW minimuma.  Number of minimums = %g \n' %num_mins)
     
@@ -270,7 +272,7 @@ def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddi
                     diameter = 2*np.sqrt(area/np.pi)/1e3
                     
                     # Circulation aroung the eddie
-                    # Calculated on a square line around the center of the eddy, positive in the clockwise direction
+                    # Calculated on a square around the center of the eddy, positive in the clockwise direction
                     
                     circ_sides = -vvel[np.min((iE+1,nx-1)), jE, kE]*dy[np.min((iE+1,nx-1)),jE] - uvel[iE, np.max((jE-1,0)), kE]*dx[iE,np.max((0,jE-1))] + vvel[np.max((0,iE-1)), jE, kE]*dy[np.max((iE-1,0)),jE] + uvel[iE, np.min((jE+1,ny-1)), kE]*dx[iE,np.min((jE+1,ny-1))]   
                     circ_corner1 = -vvel[np.min((iE+1,nx-1)), np.max((jE-1,0)), kE]*0.5*dy[np.min((iE+1,nx-1)),np.max((jE-1,0))] - uvel[np.min((iE+1,nx-1)), np.max((jE-1,0)), kE]*0.5*dx[np.min((iE+1,nx-1)),np.max((jE-1,0))]
@@ -279,21 +281,13 @@ def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddi
                     circ_corner4 =  uvel[np.min((iE+1,nx-1)), np.min((jE+1,ny-1)), kE]*0.5*dx[np.min((iE+1,nx-1)),np.min((jE+1,ny-1))] - vvel[np.min((iE+1,nx-1)), np.min((jE+1,ny-1)), kE]*0.5*dy[np.min((iE+1,nx-1)),np.min((jE+1,ny-1))]
                 
                     circ = circ_sides + circ_corner1 + circ_corner2 + circ_corner3 + circ_corner4  
-                    
-                    
-                    # add this eddie to the full eddie mask
+                               
+                    # add this eddy to the full eddy mask
                     all_eddies_mask = all_eddies_mask + eddie_mask 
-                    
-                    # add eddie to the full cyclonic mask
-                    if circ>0.0:
-                        cyclonic_mask = cyclonic_mask + eddie_mask
-                    else:
-                        cyclonic_mask = cyclonic_mask - eddie_mask
 
-                   # add eddie to the full intensity mask
-                    intensity_mask = intensity_mask + circ*eddie_mask
+                    # add eddy to the full circulation mask
+                    circulation_mask = circulation_mask + circ*eddie_mask
 
-                    
                     # record eddie data
                     eddie_census[:, iEddie-1] = (minOW[0], circ, lon[iE], lat[jE], ind, diameter)
                 
@@ -301,7 +295,7 @@ def eddy_detection(filename,R2_criterion,OW_start,max_evaluation_points,min_eddi
     
     nEddies = iEddie
     
-    return (lon,lat,uvel,vvel,vorticity,OW,OW_eddies,eddie_census,nEddies,cyclonic_mask,intensity_mask)
+    return (lon,lat,uvel,vvel,vorticity,OW,OW_eddies,eddie_census,nEddies,circulation_mask)
     
 
 ## Creates grid #####################################################
@@ -415,41 +409,39 @@ def local_peaks(A,A_start,max_evaluation_points):
 
 
 ## Print the eddy census ##################################################################
-def print_eddies(eddie_census,nEddies):
+def dataframe_eddies(eddie_census,nEddies):
     #prints the characteristics of the eddies from eddie_census
-    
-    print('\nEddie census data\n')
     
     name_list = ['minOW','circ(m^2/s)','lon(º)','lat(º)','cells','diameter(km)']
     data = eddie_census[:,0:nEddies].T    
     
     df = pd.DataFrame(data,index= np.arange(1,nEddies+1),columns=name_list)
-    print(df)
+    return df
     
 ## Plot velocities and eddies #############################################################
     
-def plot_eddies(lon,lat,uvel,vvel,vorticity,OW,OW_eddies,eddie_census,nEddies,intensity_mask,k_plot):
+def plot_eddies(day_julian_hours,lon,lat,uvel,vvel,vorticity,OW,OW_eddies,eddie_census,nEddies,intensity_mask,k_plot):
     #k_plot: z-level to plot.  Usually set to 0 for the surface.
     
     fig,axes = plt.subplots(nrows=3, ncols=2,figsize=(10,10))
 
     pos1 = axes[0,0].imshow(uvel[:,:,k_plot].T, extent=[lon[0],lon[-1],lat[0],lat[-1]],aspect='auto',origin="lower",cmap='jet')
-    axes[0,0].set_title('Zonal velocity (m/s) ->')
+    axes[0,0].set_title(r'Zonal velocity $(m/s) \rightarrow$')
     
     pos2 =axes[0,1].imshow(vvel[:,:,k_plot].T, extent=[lon[0],lon[-1],lat[0],lat[-1]],aspect='auto',origin="lower",cmap='jet')
-    axes[0,1].set_title('Meridional velocity (m/s) ^')
+    axes[0,1].set_title(r'Meridional velocity $(m/s) \uparrow$')
     
     pos3 = axes[1,0].imshow(1e5*vorticity[:,:,k_plot].T, extent=[lon[0],lon[-1],lat[0],lat[-1]],aspect='auto',origin="lower",cmap='jet')
-    axes[1,0].set_title('1e5·Vorticity (1/s)')
+    axes[1,0].set_title('Vorticity ($10^5/s$)')
     
     pos4 = axes[1,1].imshow(OW[:,:,k_plot].T, extent=[lon[0],lon[-1],lat[0],lat[-1]],aspect='auto',origin="lower",cmap='jet')
-    axes[1,1].set_title('OW')
+    axes[1,1].set_title('Okubo-Weiss')
     
     pos5 = axes[2,0].imshow(OW_eddies[:,:,k_plot].T, extent=[lon[0],lon[-1],lat[0],lat[-1]], aspect='auto',origin="lower")
-    axes[2,0].set_title('Possible eddies (OW<-0.2)')
+    axes[2,0].set_title('Possible eddies ($OW<OW_{start}$)')
     
     pos6 = axes[2,1].imshow(intensity_mask[:,:,k_plot].T, extent=[lon[0],lon[-1],lat[0],lat[-1]],aspect='auto',origin="lower",cmap='jet')
-    axes[2,1].set_title('Eddy intensity (m^2/s), cyclonic>0, anticyclonic<0')
+    axes[2,1].set_title('Circulation ($m^2/s$), $>0$: cyclonic, $<0$: anticyclonic, $=0$: no eddy')
     for i in range(0,nEddies):
         text = axes[2,1].annotate(i+1, eddie_census[2:4,i])
         text.set_fontsize('x-small')
@@ -462,6 +454,16 @@ def plot_eddies(lon,lat,uvel,vvel,vorticity,OW,OW_eddies,eddie_census,nEddies,in
     fig.colorbar(pos4, ax=axes[1,1])
     fig.colorbar(pos5, ax=axes[2,0])
     fig.colorbar(pos6, ax=axes[2,1])
-        
+   
+    origin = datetime.date(1950, 1, 1)
+    st =fig.suptitle('Eddy data for the ' + str(julianh2gregorian(day_julian_hours,origin)), fontsize="x-large")
+    st.set_y(1.02)
+    
     plt.tight_layout()
+    return plt
     plt.show()
+
+
+## Change date format #############################################################   
+def julianh2gregorian(time_hours,origin):
+    return origin + datetime.timedelta(hours=time_hours)
